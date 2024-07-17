@@ -33,6 +33,7 @@ public class BeanDefinition implements Comparable<BeanDefinition> {
     private final String factoryName;
 
     //工厂方法
+    //@Configuration类型的类就是一个工厂类，该类里面加了@Bean的方法都是一个工厂方法，对应一个Bean
     private final Method factoryMethod;
 
     //Bean顺序

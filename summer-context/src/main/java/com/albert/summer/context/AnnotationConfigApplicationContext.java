@@ -4,6 +4,7 @@ import com.albert.summer.annotation.*;
 import com.albert.summer.exception.BeanCreationException;
 import com.albert.summer.exception.BeanDefinitionException;
 import com.albert.summer.exception.NoUniqueBeanDefinitionException;
+import com.albert.summer.exception.UnsatisfiedDependencyException;
 import com.albert.summer.io.ResourceResolver;
 import com.albert.summer.property.PropertyResolver;
 import com.albert.summer.utils.ClassUtils;
@@ -12,9 +13,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -38,6 +38,11 @@ public class AnnotationConfigApplicationContext {
      */
     protected final Map<String, BeanDefinition> beans;
 
+    /**
+     * 当前正在创建的所有Bean的名称
+     */
+    protected Set<String> createingBeanNames;
+
     public AnnotationConfigApplicationContext(Class<?> configClass, PropertyResolver propertyResolver) {
         this.propertyResolver = propertyResolver;
 
@@ -46,6 +51,40 @@ public class AnnotationConfigApplicationContext {
 
         // 创建Bean的定义:
         this.beans = createBeanDefinitions(beanClassNames);
+
+        //--------在这一步BeanDefinition已经扫描完毕--------------
+
+        //--------接下来开始创建Bean--------------
+
+
+        //检测BeanName的循环依赖（强依赖检测）
+        this.createingBeanNames = new HashSet<>();
+
+        //首先创建@Configuration类型的Bean，因为@Configuration类型的Bean是一个工厂类，method对应的也是需要注入的Bean。
+        this.beans.values().stream()
+                .filter(this::isConfigurationDefinition).sorted().map(definition -> {
+                    //创建@Configuration类型的Bean
+                    createBeanAsEarlySingleton(definition);
+                    return definition.getName();
+                }).collect(Collectors.toList());
+
+        //创建其他普通Bean
+        List<BeanDefinition> defs = this.beans.values().stream()
+                // 过滤BeanDefinition 为 null 的实例对象
+                .filter(def -> def.getInstance() == null).sorted().collect(Collectors.toList());
+
+        defs.forEach(def -> {
+            // 如果Bean未被创建(可能在其他Bean的构造方法注入前被创建):
+            if (def.getInstance() == null) {
+                // 创建Bean
+                createBeanAsEarlySingleton(def);
+            }
+        });
+
+    }
+
+    private boolean isConfigurationDefinition(BeanDefinition definition) {
+        return ClassUtils.findAnnotation(definition.getBeanClass(), Configuration.class) != null;
     }
 
 
@@ -304,6 +343,75 @@ public class AnnotationConfigApplicationContext {
                 log.debug("define bean: {}", def);
             }
         }
+    }
+
+    /**
+     * 创建Bean，但是不进行字段和方法级别的注入
+     * 如果创建的Bean不是Configuration。
+     * 则在构造方法/工厂方法中注入的依赖Bean会自动创建，这种强依赖解决不了
+     *
+     * @param def
+     * @return
+     */
+    public Object createBeanAsEarlySingleton(BeanDefinition def) {
+        //首先进行循环依赖检测
+        if (!this.createingBeanNames.add(def.getName())) {
+            //重复创建Bean导致的循环依赖
+            //强依赖抛出异常
+            //比如创建某个Bean的时候，先把Bean添加到set中。然后执行构造方法，触发循环依赖，发现set已经包含了该Bean
+            //A->B, B->A
+            throw new UnsatisfiedDependencyException();
+        }
+
+        //创建方式：构造方法或者工厂方法
+        //Executable是一个抽象类，提供了对类里面可执行成员的通用访问和操作。比如 Method和Constructor。
+        Executable createFn = def.getFactoryName() == null ? def.getConstructor() : def.getFactoryMethod();
+
+        //入参
+        Parameter[] parameters = createFn.getParameters();
+        //入参注解
+        //比如这种构造方法，多注解
+        //HelloD(@Value("spring.name") @NotNull String name){}
+        Annotation[][] parameterAnnotations = createFn.getParameterAnnotations();
+        Object[] args = new Object[parameters.length];
+        //循环处理入参
+        for (int i = 0; i < parameters.length; i++) {
+            final Parameter parameter = parameters[i];
+            final Annotation[] paramAnnos = parameterAnnotations[i];
+
+            //从方法入参获取@Value和@Autowired
+            final Value value = ClassUtils.getAnnotation(paramAnnos, Value.class);
+            final Autowired autowired = ClassUtils.getAnnotation(paramAnnos, Autowired.class);
+
+            // @Configuration类型的Bean是工厂，不允许使用@Autowired创建@Configuration类型的Bean:
+            // 因为会导致潜在的循环依赖，比如 @Configuration->A， A->B, @Configuration里面的@Bean包含B，而B只能在@Configuration初始化之后初始化。
+            final boolean isConfiguration = isConfigurationDefinition(def);
+            //这种是针对构造方法的场景，工厂方法的场景，@Configuration已经创建完了
+            if (isConfiguration && autowired != null) {
+                throw new BeanCreationException(
+                        String.format("Cannot specify @Autowired when create @Configuration bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+
+            // 参数需要@Value或@Autowired两者之一:要不属于静态资源，要不属于其它Bean
+            if (value != null && autowired != null) {
+                throw new BeanCreationException(
+                        String.format("Cannot specify both @Autowired and @Value when create bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+            //如果入参不属于@Value或@Autowired两者之一，则Spring不知道该为参数如何赋值，直接抛异常。
+            if (value == null && autowired == null) {
+                throw new BeanCreationException(
+                        String.format("Must specify @Autowired or @Value when create bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+
+            //参数类型
+            final Class<?> type = parameter.getType();
+
+
+
+        }
+
+
+        return null;
     }
 
 
