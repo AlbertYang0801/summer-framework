@@ -99,6 +99,7 @@ public class ClassUtils {
             for (Annotation anno : clazz.getAnnotations()) {
                 if (findAnnotation(anno.annotationType(), Component.class) != null) {
                     try {
+                        //高层注解会覆盖底层@Component注解的value值
                         name = (String) anno.annotationType().getMethod("value").invoke(anno);
                     } catch (ReflectiveOperationException e) {
                         throw new BeanDefinitionException("Cannot get annotation value.", e);
