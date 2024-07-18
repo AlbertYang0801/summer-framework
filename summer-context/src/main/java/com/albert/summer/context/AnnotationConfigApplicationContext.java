@@ -10,6 +10,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
@@ -22,7 +24,7 @@ import java.util.stream.Collectors;
  * @date 2024/7/16
  */
 @Slf4j
-public class AnnotationConfigApplicationContext {
+public class AnnotationConfigApplicationContext implements Closeable {
 
     /**
      * 属性解析器
@@ -42,16 +44,15 @@ public class AnnotationConfigApplicationContext {
     public AnnotationConfigApplicationContext(Class<?> configClass, PropertyResolver propertyResolver) {
         this.propertyResolver = propertyResolver;
 
-        // 扫描获取所有Bean的Class类型:
+        // 1.扫描获取所有Bean的Class类型:
         final Set<String> beanClassNames = scanForClassNames(configClass);
 
-        // 创建Bean的定义:
+        // 2.创建Bean的定义:BeanDefinition
         this.beans = createBeanDefinitions(beanClassNames);
 
         //--------在这一步BeanDefinition已经扫描完毕--------------
 
-        //--------接下来开始创建Bean--------------
-
+        //--------接下来开始创建Bean实例--------------
 
         //检测BeanName的循环依赖（强依赖检测）
         this.createingBeanNames = new HashSet<>();
@@ -77,12 +78,18 @@ public class AnnotationConfigApplicationContext {
             }
         });
 
-    }
+        //-----------------在这一步创建Bean实例完成-----------------
 
-    private boolean isConfigurationDefinition(BeanDefinition definition) {
-        return ClassUtils.findAnnotation(definition.getBeanClass(), Configuration.class) != null;
-    }
+        //-----------------3.开始对实例Bean进行属性注入和字段注入-----------------
 
+        //通过字段和set方法注入依赖
+        this.beans.values().forEach(this::injectBean);
+
+        //调用init方法
+        this.beans.values().forEach(this::initBean);
+
+
+    }
 
     /**
      * Do component scan and return class names
@@ -165,9 +172,9 @@ public class AnnotationConfigApplicationContext {
                 var def = new BeanDefinition(beanName, clazz, getSuitableConstructor(clazz), getOrder(clazz), clazz.isAnnotationPresent(Primary.class),
                         // named init / destroy method:
                         null, null,
-                        // init method:
+                        // 扫描@PostConstruct注解
                         ClassUtils.findAnnotationMethod(clazz, PostConstruct.class),
-                        // destroy method:
+                        // 扫描@PreDestroy注解
                         ClassUtils.findAnnotationMethod(clazz, PreDestroy.class));
                 addBeanDefinitions(defs, def);
                 log.debug("define bean: {}", def);
@@ -182,6 +189,364 @@ public class AnnotationConfigApplicationContext {
         }
         return defs;
     }
+
+    /**
+     * 创建Bean，但是不进行字段和方法级别的注入
+     * 如果创建的Bean不是Configuration。
+     * 则在构造方法/工厂方法中注入的依赖Bean会自动创建，这种强依赖解决不了
+     * <p>
+     * 循环依赖检测 -> 处理入参 -> 创建Bean实例
+     *
+     * @param def
+     * @return
+     */
+    public Object createBeanAsEarlySingleton(BeanDefinition def) {
+
+        //首先进行循环依赖检测
+        if (!this.createingBeanNames.add(def.getName())) {
+            //重复创建Bean导致的循环依赖
+            //强依赖抛出异常
+            //比如创建某个Bean的时候，先把Bean添加到set中。然后执行构造方法，触发循环依赖，发现set已经包含了该Bean
+            //A->B, B->A
+            throw new UnsatisfiedDependencyException();
+        }
+
+        //创建方式：构造方法或者工厂方法
+        //Executable是一个抽象类，提供了对类里面可执行成员的通用访问和操作。比如 Method和Constructor。
+        Executable createFn = def.getFactoryName() == null ? def.getConstructor() : def.getFactoryMethod();
+
+        //入参
+        Parameter[] parameters = createFn.getParameters();
+        //入参注解
+        //比如这种构造方法，多注解
+        //HelloD(@Value("spring.name") @NotNull String name){}
+        Annotation[][] parameterAnnotations = createFn.getParameterAnnotations();
+        //方法入参，保存解析后的实际对象
+        Object[] args = new Object[parameters.length];
+
+        //循环处理入参
+        for (int i = 0; i < parameters.length; i++) {
+            final Parameter parameter = parameters[i];
+            final Annotation[] paramAnnos = parameterAnnotations[i];
+
+            //从方法入参获取@Value和@Autowired
+            final Value value = ClassUtils.getAnnotation(paramAnnos, Value.class);
+            final Autowired autowired = ClassUtils.getAnnotation(paramAnnos, Autowired.class);
+
+            // @Configuration类型的Bean是工厂，不允许使用@Autowired创建@Configuration类型的Bean:
+            // 因为会导致潜在的循环依赖，比如 @Configuration->A， A->B, @Configuration里面的@Bean包含B，而B只能在@Configuration初始化之后初始化。
+            final boolean isConfiguration = isConfigurationDefinition(def);
+            //这种是针对构造方法的场景，工厂方法的场景，@Configuration已经创建完了
+            if (isConfiguration && autowired != null) {
+                throw new BeanCreationException(
+                        String.format("Cannot specify @Autowired when create @Configuration bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+
+            // 参数需要@Value或@Autowired两者之一:要不属于静态资源，要不属于其它Bean
+            if (value != null && autowired != null) {
+                throw new BeanCreationException(
+                        String.format("Cannot specify both @Autowired and @Value when create bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+            //如果入参不属于@Value或@Autowired两者之一，则Spring不知道该为参数如何赋值，直接抛异常。
+            if (value == null && autowired == null) {
+                throw new BeanCreationException(
+                        String.format("Must specify @Autowired or @Value when create bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+
+            //参数类型
+            final Class<?> type = parameter.getType();
+            //1.入参为@Value
+            if (value != null) {
+                //参数是@Value，从参数解析器 propertyResolver中查询Value对应的属性
+                args[i] = this.propertyResolver.getRequiredProperty(value.value(), type);
+            } else {
+                //2.入参为@Autowired
+                String name = autowired.name();
+                boolean required = autowired.value();
+                //根据 type 和 name 查找 bean
+                //1.如果设置了name，则查找name和type都匹配的bean。
+                //2.未设置name，根据type查找
+                //返回值有几种情况：未找到Bean，同一个类型多个Bean返回标识@Primary注解的Bean，同一类型不包含@Primary注解抛出异常。
+                BeanDefinition definitionOnDef = name.isEmpty() ? findBeanDefinition(type) : findBeanDefinition(name, type);
+
+                if (required && definitionOnDef == null) {
+                    //required则抛出异常
+                    throw new BeanCreationException(String.format("Missing autowired bean with type '%s' when create bean '%s': %s.", type.getName(),
+                            def.getName(), def.getBeanClass().getName()));
+                }
+
+                if (definitionOnDef != null) {
+                    //获取入参依赖的Bean
+                    Object autowiredBeanInstance = definitionOnDef.getInstance();
+                    //当前Bean实例对象为空，不是@Configuration工厂类
+                    if (autowiredBeanInstance == null & !isConfiguration) {
+                        //该Bean尚未初始化，递归调用初始化该Bean
+                        autowiredBeanInstance = createBeanAsEarlySingleton(definitionOnDef);
+                    }
+                    //设置入参真实值
+                    args[i] = autowiredBeanInstance;
+                } else {
+                    args[i] = null;
+                }
+            }
+        }
+
+        //创建Bean实例
+        Object instance = null;
+        //构造方法或者工厂方法（@Bean）
+        if (def.getFactoryName() == null) {
+            try {
+                //构造方法
+                //根据入参真实值和构造方法创建Bean实例
+                instance = def.getConstructor().newInstance(args);
+            } catch (Exception e) {
+                throw new BeanCreationException(String.format("Exception when create bean '%s': %s", def.getName(), def.getBeanClass().getName()), e);
+            }
+        } else {
+            //@Bean方式创建
+            //先查找出@Configuration对应的类
+            Object bean = getBean(def.getFactoryName());
+            try {
+                //通过反射，传入对象和入参，即可根据method构建出一个对象
+                instance = def.getFactoryMethod().invoke(bean, args);
+            } catch (Exception e) {
+                throw new BeanCreationException(String.format("Exception when create bean '%s': %s", def.getName(), def.getBeanClass().getName()), e);
+            }
+        }
+        //设置Bean实例
+        def.setInstance(instance);
+        return def.getInstance();
+    }
+
+    /**
+     * 注入属性
+     *
+     * @param def
+     */
+    private void injectBean(BeanDefinition def) {
+        try {
+            injectProperties(def, def.getBeanClass(), def.getInstance());
+        } catch (ReflectiveOperationException e) {
+            throw new BeanCreationException(e);
+        }
+    }
+
+    /**
+     * 执行init方法，@PostConstruct对应方法
+     *
+     * @param def
+     */
+    private void initBean(BeanDefinition def) {
+        //调用init方法
+        callMethod(def.getInstance(), def.getInitMethod(), def.getInitMethodName());
+    }
+
+    /**
+     * 执行destroy方法，@PreDestroy对应方法
+     *
+     * @param def
+     */
+    private void destroyBean(BeanDefinition def) {
+        //调用init方法
+        callMethod(def.getInstance(), def.getDestroyMethod(), def.getDestroyMethodName());
+    }
+
+    /**
+     * 调用init/destroy方法
+     *
+     * @param beanInstance
+     * @param method 方法，直接根据方法进行反射
+     * @param namedMethod 方法名，直接根据方法名进行反射
+     */
+    private void callMethod(Object beanInstance, Method method, String namedMethod) {
+        if (method != null) {
+            try {
+                //反射执行Bean的init/destroy方法
+                method.invoke(beanInstance);
+            } catch (ReflectiveOperationException e) {
+                throw new BeanCreationException(e);
+            }
+        } else if (namedMethod != null) {
+            //查找class里面的namedMethod方法
+            Method named = ClassUtils.getNamedMethod(beanInstance.getClass(), namedMethod);
+            if (named != null) {
+                named.setAccessible(true);
+                try {
+                    named.invoke(beanInstance);
+                } catch (ReflectiveOperationException e) {
+                    throw new BeanCreationException(e);
+                }
+            }
+        }
+    }
+
+    /**
+     * 注入当前类属性和父类属性
+     *
+     * @param definition
+     * @param clazz      当前BeanClass
+     * @param bean       Bean实例
+     */
+    void injectProperties(BeanDefinition definition, Class<?> clazz, Object bean) throws ReflectiveOperationException {
+
+        //获取当前类声明的所有字段
+        for (Field declaredField : clazz.getDeclaredFields()) {
+            //字段属性注入
+            tryInjectProperties(definition, clazz, bean, declaredField);
+        }
+        //获取当前类声明的所有方法
+        for (Method declaredMethod : clazz.getDeclaredMethods()) {
+            //方法属性注入
+            tryInjectProperties(definition, clazz, bean, declaredMethod);
+        }
+
+        //父类的属性和方法
+        Class<?> superclass = clazz.getSuperclass();
+        if (superclass != null) {
+            //递归为当前Bean注入父类的属性或方法
+            injectProperties(definition, superclass, bean);
+        }
+    }
+
+    /**
+     * 为bean实例注入单个属性
+     * 属性可以是@Value和@Autowired注解
+     * 可以是字段，也可以是方法
+     * 如果是@Value，则从PropertyResover中获取配置，注入到当前BeanObj中。
+     * 如果是@Autowired，则查找对应的Bean实例，注入到当前BeanObj中
+     *
+     * @param def
+     * @param clazz
+     * @param bean
+     * @param acc   字段、方法、构造方法等统一父类
+     * @throws ReflectiveOperationException
+     */
+    void tryInjectProperties(BeanDefinition def, Class<?> clazz, Object bean, AccessibleObject acc) throws ReflectiveOperationException {
+        Value value = acc.getAnnotation(Value.class);
+        Autowired autowired = acc.getAnnotation(Autowired.class);
+        //字段或方法未加注解，不需要注入
+        if (value == null && autowired == null) {
+            return;
+        }
+
+        Field field = null;
+        Method method = null;
+
+        //字段属性注入
+        //判断acc是否是Field类型，如果是则将acc赋值给f
+        if (acc instanceof Field f) {
+            //检查字段类型，如果是static和final修饰则无法注入属性
+            checkFiledOrMethod(f);
+            //修改字段访问权限
+            f.setAccessible(true);
+            field = f;
+        }
+
+        //set方法注入
+        //set方法注入只推荐一个属性
+        //public class MyClass {
+        //    private MyDependency dependency;
+        //
+        //    @Autowired
+        //    public void setDependency(MyDependency dependency) {
+        //        this.dependency = dependency;
+        //    }
+        //}
+        if (acc instanceof Method m) {
+            checkFiledOrMethod(m);
+            if (m.getParameters().length != 1) {
+                throw new BeanDefinitionException(
+                        String.format("Cannot inject a non-setter method %s for bean '%s': %s", m.getName(), def.getName(), def.getBeanClass().getName()));
+            }
+            m.setAccessible(true);
+            method = m;
+        }
+
+        //字段名或方法名
+        String accessibleName = field != null ? field.getName() : method.getName();
+        //参数类型，属性或者方法第一个入类型
+        Class<?> accessibleType = field != null ? field.getType() : method.getParameterTypes()[0];
+
+        //@value和@autowired注解不能重复
+        if (value != null && autowired != null) {
+            throw new BeanCreationException(String.format("Cannot specify both @Autowired and @Value when inject %s.%s for bean '%s': %s",
+                    clazz.getSimpleName(), accessibleName, def.getName(), def.getBeanClass().getName()));
+        }
+
+        //@Value注入
+        if (value != null) {
+            //获取@Value注解真实配置
+            Object propValue = this.propertyResolver.getRequiredProperty(value.value(), accessibleType);
+            if (field != null) {
+                log.debug("Field injection: {}.{} = {}", def.getBeanClass().getName(), accessibleName, propValue);
+                //设置obj的某个字段值
+                field.set(bean, propValue);
+            }
+            //@Value在method级别，只能作为入参
+            //然后类似执行普通方法一样调用所在方法
+            if (method != null) {
+                log.debug("Method injection: {}.{} ({})", def.getBeanClass().getName(), accessibleName, propValue);
+                //调用了obj的method，并传入入参propValue
+                method.invoke(bean, propValue);
+            }
+        }
+
+        //@Autowired注入
+        if (autowired != null) {
+            String name = autowired.name();
+            boolean required = autowired.value();
+            //获取属性对应的Bean实例
+            Object depends = name.isEmpty() ? findBean(accessibleType) : findBean(name, accessibleType);
+            //bean not found
+            if (required && depends == null) {
+                throw new UnsatisfiedDependencyException(String.format("Dependency bean not found when inject %s.%s for bean '%s': %s", clazz.getSimpleName(),
+                        accessibleName, def.getName(), def.getBeanClass().getName()));
+            }
+            if (depends != null) {
+                if (field != null) {
+                    log.debug("Field injection: {}.{} = {}", def.getBeanClass().getName(), accessibleName, depends);
+                    //属性对应的beanObj，设置为bean的field值
+                    field.set(bean, depends);
+                }
+                if (method != null) {
+                    log.debug("Mield injection: {}.{} ({})", def.getBeanClass().getName(), accessibleName, depends);
+                    //将对象作为入参传入，并执行bean对应的method
+                    method.invoke(bean, depends);
+                }
+            }
+        }
+    }
+
+    /**
+     * 检查字段或者方法
+     *
+     * @param m
+     */
+    void checkFiledOrMethod(Member m) {
+        int modifiers = m.getModifiers();
+        //不能注入静态方法
+        if (Modifier.isStatic(modifiers)) {
+            throw new BeanDefinitionException("Cannot inject static field: " + m);
+        }
+        //不能注入final属性
+        if (Modifier.isFinal(modifiers)) {
+            if (m instanceof Field field) {
+                throw new BeanDefinitionException("Cannot inject final field: " + field);
+            }
+            if (m instanceof Method method) {
+                log.warn("Inject final method should be careful because it is not called on target bean when bean is proxied and may cause NullPointerException.");
+            }
+        }
+    }
+
+
+    private boolean isConfigurationDefinition(BeanDefinition definition) {
+        return ClassUtils.findAnnotation(definition.getBeanClass(), Configuration.class) != null;
+    }
+
+
+
+
 
     /**
      * Get order by:
@@ -359,134 +724,6 @@ public class AnnotationConfigApplicationContext {
         }
     }
 
-    /**
-     * 创建Bean，但是不进行字段和方法级别的注入
-     * 如果创建的Bean不是Configuration。
-     * 则在构造方法/工厂方法中注入的依赖Bean会自动创建，这种强依赖解决不了
-     * <p>
-     * 循环依赖检测 -> 处理入参 -> 创建Bean实例
-     *
-     * @param def
-     * @return
-     */
-    public Object createBeanAsEarlySingleton(BeanDefinition def) {
-
-        //首先进行循环依赖检测
-        if (!this.createingBeanNames.add(def.getName())) {
-            //重复创建Bean导致的循环依赖
-            //强依赖抛出异常
-            //比如创建某个Bean的时候，先把Bean添加到set中。然后执行构造方法，触发循环依赖，发现set已经包含了该Bean
-            //A->B, B->A
-            throw new UnsatisfiedDependencyException();
-        }
-
-        //创建方式：构造方法或者工厂方法
-        //Executable是一个抽象类，提供了对类里面可执行成员的通用访问和操作。比如 Method和Constructor。
-        Executable createFn = def.getFactoryName() == null ? def.getConstructor() : def.getFactoryMethod();
-
-        //入参
-        Parameter[] parameters = createFn.getParameters();
-        //入参注解
-        //比如这种构造方法，多注解
-        //HelloD(@Value("spring.name") @NotNull String name){}
-        Annotation[][] parameterAnnotations = createFn.getParameterAnnotations();
-        //方法入参，保存解析后的实际对象
-        Object[] args = new Object[parameters.length];
-
-        //循环处理入参
-        for (int i = 0; i < parameters.length; i++) {
-            final Parameter parameter = parameters[i];
-            final Annotation[] paramAnnos = parameterAnnotations[i];
-
-            //从方法入参获取@Value和@Autowired
-            final Value value = ClassUtils.getAnnotation(paramAnnos, Value.class);
-            final Autowired autowired = ClassUtils.getAnnotation(paramAnnos, Autowired.class);
-
-            // @Configuration类型的Bean是工厂，不允许使用@Autowired创建@Configuration类型的Bean:
-            // 因为会导致潜在的循环依赖，比如 @Configuration->A， A->B, @Configuration里面的@Bean包含B，而B只能在@Configuration初始化之后初始化。
-            final boolean isConfiguration = isConfigurationDefinition(def);
-            //这种是针对构造方法的场景，工厂方法的场景，@Configuration已经创建完了
-            if (isConfiguration && autowired != null) {
-                throw new BeanCreationException(
-                        String.format("Cannot specify @Autowired when create @Configuration bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
-            }
-
-            // 参数需要@Value或@Autowired两者之一:要不属于静态资源，要不属于其它Bean
-            if (value != null && autowired != null) {
-                throw new BeanCreationException(
-                        String.format("Cannot specify both @Autowired and @Value when create bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
-            }
-            //如果入参不属于@Value或@Autowired两者之一，则Spring不知道该为参数如何赋值，直接抛异常。
-            if (value == null && autowired == null) {
-                throw new BeanCreationException(
-                        String.format("Must specify @Autowired or @Value when create bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
-            }
-
-            //参数类型
-            final Class<?> type = parameter.getType();
-            //1.入参为@Value
-            if (value != null) {
-                //参数是@Value，从参数解析器 propertyResolver中查询Value对应的属性
-                args[i] = this.propertyResolver.getRequiredProperty(value.value(), type);
-            } else {
-                //2.入参为@Autowired
-                String name = autowired.name();
-                boolean required = autowired.value();
-                //根据 type 和 name 查找 bean
-                //1.如果设置了name，则查找name和type都匹配的bean。
-                //2.未设置name，根据type查找
-                //返回值有几种情况：未找到Bean，同一个类型多个Bean返回标识@Primary注解的Bean，同一类型不包含@Primary注解抛出异常。
-                BeanDefinition definitionOnDef = name.isEmpty() ? findBeanDefinition(type) : findBeanDefinition(name, type);
-
-                if (required && definitionOnDef == null) {
-                    //required则抛出异常
-                    throw new BeanCreationException(String.format("Missing autowired bean with type '%s' when create bean '%s': %s.", type.getName(),
-                            def.getName(), def.getBeanClass().getName()));
-                }
-
-                if (definitionOnDef != null) {
-                    //获取入参依赖的Bean
-                    Object autowiredBeanInstance = definitionOnDef.getInstance();
-                    //当前Bean实例对象为空，不是@Configuration工厂类
-                    if (autowiredBeanInstance == null & !isConfiguration) {
-                        //该Bean尚未初始化，递归调用初始化该Bean
-                        autowiredBeanInstance = createBeanAsEarlySingleton(definitionOnDef);
-                    }
-                    //设置入参真实值
-                    args[i] = autowiredBeanInstance;
-                } else {
-                    args[i] = null;
-                }
-            }
-        }
-
-        //创建Bean实例
-        Object instance = null;
-        //构造方法或者工厂方法（@Bean）
-        if (def.getFactoryName() == null) {
-            try {
-                //构造方法
-                //根据入参真实值和构造方法创建Bean实例
-                instance = def.getConstructor().newInstance(args);
-            } catch (Exception e) {
-                throw new BeanCreationException(String.format("Exception when create bean '%s': %s", def.getName(), def.getBeanClass().getName()), e);
-            }
-        } else {
-            //@Bean方式创建
-            //先查找出@Configuration对应的类
-            Object bean = getBean(def.getFactoryName());
-            try {
-                //通过反射，传入对象和入参，即可根据method构建出一个对象
-                instance = def.getFactoryMethod().invoke(bean, args);
-            } catch (Exception e) {
-                throw new BeanCreationException(String.format("Exception when create bean '%s': %s", def.getName(), def.getBeanClass().getName()), e);
-            }
-        }
-        //设置Bean实例
-        def.setInstance(instance);
-        return def.getInstance();
-    }
-
 
     /**
      * 通过Name查找Bean，不存在时抛出NoSuchBeanDefinitionException
@@ -514,6 +751,53 @@ public class AnnotationConfigApplicationContext {
 
     public boolean containsBeanDefinition(String name) {
         return this.beans.containsKey(name);
+    }
+
+    /**
+     * 根据lassType获取BeanObj
+     *
+     * @param requiredType
+     * @param <T>
+     * @return
+     */
+    @Nullable
+    @SuppressWarnings("unchecked")
+    protected <T> T findBean(Class<T> requiredType) {
+        BeanDefinition def = findBeanDefinition(requiredType);
+        if (def == null) {
+            return null;
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    /**
+     * 根据name和classType获取BeanObj
+     *
+     * @param name
+     * @param requiredType
+     * @param <T>
+     * @return
+     */
+    //可能为空
+    @Nullable
+    //忽略warn
+    @SuppressWarnings("unchecked")
+    protected <T> T findBean(String name, Class<T> requiredType) {
+        BeanDefinition def = findBeanDefinition(name, requiredType);
+        if (def == null) {
+            return null;
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    @Override
+    public void close() throws IOException {
+        //在关闭时，调用PreDestroy标注的方法
+        for (BeanDefinition value : this.beans.values()) {
+            destroyBean(value);
+        }
+        this.beans.clear();
+        this.createingBeanNames.clear();
     }
 
 

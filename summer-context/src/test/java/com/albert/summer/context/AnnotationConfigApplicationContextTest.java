@@ -3,6 +3,8 @@ package com.albert.summer.context;
 import com.albert.summer.property.PropertyResolver;
 import com.albert.summer.scan.ScanApplication;
 import com.albert.summer.scan.custom.annotation.CustomAnnotationBean;
+import com.albert.summer.scan.init.AnnotationInitBean;
+import com.albert.summer.scan.init.SpecifyInitBean;
 import com.albert.summer.scan.nested.OuterBean;
 import com.albert.summer.scan.primary.DogBean;
 import com.albert.summer.scan.primary.PersonBean;
@@ -12,6 +14,7 @@ import com.albert.summer.scan.sub1.sub2.Sub2Bean;
 import com.albert.summer.scan.sub1.sub2.sub3.Sub3Bean;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.Properties;
 
@@ -20,16 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class AnnotationConfigApplicationContextTest {
 
-    /**
-     * 测试高层注解
-     */
-    @Test
-    public void testCustomAnnotation() {
-        var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
-        assertNotNull(applicationContent.getBean(CustomAnnotationBean.class));
-        assertNotNull(applicationContent.getBean("customAnnotationBean"));
-        assertNotNull(applicationContent.getBean("customAnnotation"));
-    }
+    //******************************************测试类扫描*********************************
 
     /**
      * 测试import导入不在扫描路径的类
@@ -45,14 +39,18 @@ class AnnotationConfigApplicationContextTest {
         System.out.println("done");
     }
 
+
+    //******************************************测试创建Bean*********************************
+
     /**
-     * 测试嵌套Bean
+     * 测试高层注解value覆盖@Component的value
      */
     @Test
-    public void testNestd() {
+    public void testCustomAnnotation() {
         var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
-        assertNotNull(applicationContent.getBean(OuterBean.class));
-        assertNotNull(applicationContent.getBean(OuterBean.NestedBean.class));
+        assertNotNull(applicationContent.getBean(CustomAnnotationBean.class));
+        assertNotNull(applicationContent.getBean("customAnnotationBean"));
+        assertNotNull(applicationContent.getBean("customAnnotation"));
     }
 
     /**
@@ -67,7 +65,7 @@ class AnnotationConfigApplicationContextTest {
         assertEquals(TeacherBean.class, person.getClass());
 
         DogBean dog = applicationContent.getBean(DogBean.class);
-        assertEquals(dog.type,"Husky");
+        assertEquals(dog.type, "Husky");
         //assertEquals(dog.type,"Teddy");
     }
 
@@ -75,11 +73,58 @@ class AnnotationConfigApplicationContextTest {
      * 测试层级目录接口注入Bean
      */
     @Test
-    public void testSub(){
+    public void testSub() {
         var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
         assertNotNull(applicationContent.getBean(Sub1Bean.class));
         assertNotNull(applicationContent.getBean(Sub2Bean.class));
         assertNotNull(applicationContent.getBean(Sub3Bean.class));
+    }
+
+    /**
+     * 测试嵌套Bean
+     */
+    @Test
+    public void testNestd() {
+        var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
+        assertNotNull(applicationContent.getBean(OuterBean.class));
+        assertNotNull(applicationContent.getBean(OuterBean.NestedBean.class));
+    }
+
+
+    //******************************************测试属性注入*********************************
+
+
+    /**
+     * 测试属性注入
+     * 同时测试init方法
+     */
+    @Test
+    public void testInitMethod() {
+        var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
+        // test @PostConstruct:
+        //测试字段属性注入
+        AnnotationInitBean bean1 = applicationContent.getBean(AnnotationInitBean.class);
+        //测试方法属性注入
+        SpecifyInitBean bean2 = applicationContent.getBean(SpecifyInitBean.class);
+        assertEquals("Scan App / v1.0", bean1.appName);
+        assertEquals("Scan App / v1.0", bean2.appName);
+    }
+
+    /**
+     * 测试destroy方法
+     */
+    @Test
+    public void testDestroyMethod() {
+        var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
+        // test @PostConstruct:
+        //测试字段属性注入
+        AnnotationInitBean bean1 = applicationContent.getBean(AnnotationInitBean.class);
+        assertEquals("Scan App / v1.0", bean1.appName);
+        try {
+            applicationContent.close();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
 
@@ -106,5 +151,7 @@ class AnnotationConfigApplicationContextTest {
         var pr = new PropertyResolver(ps);
         return pr;
     }
+
+
 
 }

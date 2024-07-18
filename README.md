@@ -1,7 +1,11 @@
 # summer-framework
 
-#### 介绍
-Spring练习
+## 介绍
+summer-framework 轻量级 Spring框架
+
+- summer-context
+- summer-aop
+- summer-jdbc
 
 #### 软件架构
 软件架构说明
