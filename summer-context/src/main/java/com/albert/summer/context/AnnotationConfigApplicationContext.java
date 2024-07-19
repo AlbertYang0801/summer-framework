@@ -1,5 +1,6 @@
 package com.albert.summer.context;
 
+import cn.hutool.extra.spring.SpringUtil;
 import com.albert.summer.annotation.*;
 import com.albert.summer.exception.*;
 import com.albert.summer.io.ResourceResolver;
@@ -10,7 +11,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
  * @date 2024/7/16
  */
 @Slf4j
-public class AnnotationConfigApplicationContext implements Closeable {
+public class AnnotationConfigApplicationContext implements ConfigurableApplicationContext {
 
     /**
      * 属性解析器
@@ -214,8 +214,8 @@ public class AnnotationConfigApplicationContext implements Closeable {
      * @param def
      * @return
      */
+    @Override
     public Object createBeanAsEarlySingleton(BeanDefinition def) {
-
         //首先进行循环依赖检测
         if (!this.createingBeanNames.add(def.getName())) {
             //重复创建Bean导致的循环依赖
@@ -671,10 +671,12 @@ public class AnnotationConfigApplicationContext implements Closeable {
      * @return
      */
     @Nullable
+    @Override
     public BeanDefinition findBeanDefinition(String beanName) {
         return this.beans.get(beanName);
     }
 
+    @Override
     public List<BeanDefinition> findBeanDefinitions(Class<?> type) {
         return this.beans.values().stream()
                 //类型过滤
@@ -691,6 +693,7 @@ public class AnnotationConfigApplicationContext implements Closeable {
      * @return
      */
     @Nullable
+    @Override
     public BeanDefinition findBeanDefinition(Class<?> type) {
         //查询某个类型下所有Bean，包含子类、实现类
         List<BeanDefinition> beanDefinitions = findBeanDefinitions(type);
@@ -718,11 +721,14 @@ public class AnnotationConfigApplicationContext implements Closeable {
      * 根据Name和Type查找BeanDefinition，如果Name不存在，返回null，如果Name存在，但Type不匹配，抛出异常。
      */
     @Nullable
+    @Override
     public BeanDefinition findBeanDefinition(String name, Class<?> requiredType) {
+        //先根据name查找Bean
         BeanDefinition def = findBeanDefinition(name);
         if (def == null) {
             return null;
         }
+        //校验Bean的ClassType
         if (!requiredType.isAssignableFrom(def.getBeanClass())) {
             throw new BeanNotOfRequiredTypeException(String.format("Autowire required type '%s' but bean '%s' has actual type '%s'.", requiredType.getName(),
                     name, def.getBeanClass().getName()));
@@ -787,34 +793,6 @@ public class AnnotationConfigApplicationContext implements Closeable {
     }
 
     /**
-     * 通过Name查找Bean，不存在时抛出NoSuchBeanDefinitionException
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T getBean(String name) {
-        BeanDefinition def = this.beans.get(name);
-        if (def == null) {
-            throw new NoSuchBeanDefinitionException(String.format("No bean defined with name '%s'.", name));
-        }
-        return (T) def.getRequiredInstance();
-    }
-
-    /**
-     * 通过Type查找Bean，不存在时抛出NoSuchBeanDefinitionException
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T getBean(Class<?> clazz) {
-        BeanDefinition def = findBeanDefinition(clazz);
-        if (def == null) {
-            throw new NoSuchBeanDefinitionException(String.format("No bean defined with clazz '%s'.", clazz));
-        }
-        return (T) def.getRequiredInstance();
-    }
-
-    public boolean containsBeanDefinition(String name) {
-        return this.beans.containsKey(name);
-    }
-
-    /**
      * 根据lassType获取BeanObj
      *
      * @param requiredType
@@ -849,6 +827,63 @@ public class AnnotationConfigApplicationContext implements Closeable {
             return null;
         }
         return (T) def.getRequiredInstance();
+    }
+
+    @Override
+    public boolean containsBean(String name) {
+        return this.beans.containsKey(name);
+    }
+
+    /**
+     * 通过Name查找Bean，不存在时抛出NoSuchBeanDefinitionException
+     */
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T> T getBean(String name) {
+        BeanDefinition def = this.beans.get(name);
+        if (def == null) {
+            throw new NoSuchBeanDefinitionException(String.format("No bean defined with name '%s'.", name));
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    @Override
+    public <T> T getBean(String name, Class<T> requiredType) {
+        //先根据name查找Bean，然后校验Bean的ClassType
+        BeanDefinition def = findBeanDefinition(name, requiredType);
+        if (def == null) {
+            throw new NoSuchBeanDefinitionException(String.format("No bean defined with name '%s'.", name));
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    /**
+     * 通过Type查找Bean，不存在时抛出NoSuchBeanDefinitionException
+     */
+    @Override
+    public <T> T getBean(Class<T> requiredType) {
+        //根据类型查找Bean
+        //如果存在多个相同类型的Bean，查找@Primary的bean
+        BeanDefinition def = findBeanDefinition(requiredType);
+        if (def == null) {
+            throw new NoSuchBeanDefinitionException(String.format("No bean defined with clazz '%s'.", requiredType));
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    @Override
+    public <T> List<T> getBeans(Class<T> requiredType) {
+        //查询出相同类型的所有Bean
+        List<BeanDefinition> beanDefinitions = findBeanDefinitions(requiredType);
+        if (beanDefinitions == null || beanDefinitions.isEmpty()) {
+            return List.of();
+        }
+        List<T> list = new ArrayList<>(beanDefinitions.size());
+        for (var def : beanDefinitions) {
+            //bean实例
+            list.add((T) def.getRequiredInstance());
+        }
+        return list;
     }
 
     @Override
