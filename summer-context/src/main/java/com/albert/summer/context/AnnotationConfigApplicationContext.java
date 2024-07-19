@@ -1,6 +1,5 @@
 package com.albert.summer.context;
 
-import cn.hutool.extra.spring.SpringUtil;
 import com.albert.summer.annotation.*;
 import com.albert.summer.exception.*;
 import com.albert.summer.io.ResourceResolver;

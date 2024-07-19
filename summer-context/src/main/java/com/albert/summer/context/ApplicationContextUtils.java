@@ -5,7 +5,6 @@ import jakarta.annotation.Nullable;
 
 import java.util.Objects;
 
-import static cn.hutool.extra.spring.SpringUtil.getApplicationContext;
 
 /**
  * @author yangjunwei
