@@ -9,6 +9,10 @@ import com.albert.summer.scan.nested.OuterBean;
 import com.albert.summer.scan.primary.DogBean;
 import com.albert.summer.scan.primary.PersonBean;
 import com.albert.summer.scan.primary.TeacherBean;
+import com.albert.summer.scan.proxy.InjectProxyOnConstructorBean;
+import com.albert.summer.scan.proxy.InjectProxyOnPropertyBean;
+import com.albert.summer.scan.proxy.OriginBean;
+import com.albert.summer.scan.proxy.SecondProxyBean;
 import com.albert.summer.scan.sub1.Sub1Bean;
 import com.albert.summer.scan.sub1.sub2.Sub2Bean;
 import com.albert.summer.scan.sub1.sub2.sub3.Sub3Bean;
@@ -18,8 +22,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.Properties;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 
 class AnnotationConfigApplicationContextTest {
 
@@ -127,6 +130,31 @@ class AnnotationConfigApplicationContextTest {
         }
     }
 
+    /**
+     * 测试BeanPostProcessor
+     */
+    @Test
+    public void testProxy() {
+        var applicationContent = new AnnotationConfigApplicationContext(ScanApplication.class, createPropertyResolver());
+        OriginBean proxy = applicationContent.getBean(OriginBean.class);
+        //相同proxy代理逻辑，order越大优先级越高。
+        //所以最终生效的是SecondProxyBeanPostProcessor
+        assertSame(SecondProxyBean.class, proxy.getClass());
+        assertEquals("Scan App",proxy.getName());
+        assertEquals("v1.0",proxy.getVersion());
+
+        // make sure proxy.field is not injected:
+        //直接调用代理类的字段是null，因为属性注入到了原始对象中，可以使用方法获取字段属性
+        assertNull(proxy.name);
+        assertNull(proxy.version);
+
+        //测试属性注入和构造方法注入
+        //注入的是是否是proxy类
+        InjectProxyOnPropertyBean inject1 = applicationContent.getBean(InjectProxyOnPropertyBean.class);
+        InjectProxyOnConstructorBean inject2 = applicationContent.getBean(InjectProxyOnConstructorBean.class);
+        assertSame(proxy, inject1.injected);
+        assertSame(proxy, inject2.injected);
+    }
 
     PropertyResolver createPropertyResolver() {
         var ps = new Properties();
@@ -151,7 +179,6 @@ class AnnotationConfigApplicationContextTest {
         var pr = new PropertyResolver(ps);
         return pr;
     }
-
 
 
 }

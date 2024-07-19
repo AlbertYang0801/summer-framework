@@ -41,6 +41,11 @@ public class AnnotationConfigApplicationContext implements Closeable {
      */
     protected Set<String> createingBeanNames;
 
+    /**
+     * BeanPostProcessor 需要在创建Bean之后执行
+     */
+    private List<BeanPostProcessor> beanPostProcessors = new ArrayList<>();
+
     public AnnotationConfigApplicationContext(Class<?> configClass, PropertyResolver propertyResolver) {
         this.propertyResolver = propertyResolver;
 
@@ -64,6 +69,15 @@ public class AnnotationConfigApplicationContext implements Closeable {
                     createBeanAsEarlySingleton(definition);
                     return definition.getName();
                 }).collect(Collectors.toList());
+
+        //创建BeanPostProcessor类型的Bean
+        List<BeanPostProcessor> processors = this.beans.values().stream()
+                .filter(this::isBeanPostProcessorDefinition)
+                .sorted()
+                .map(definition -> (BeanPostProcessor) createBeanAsEarlySingleton(definition))
+                .collect(Collectors.toList());
+        this.beanPostProcessors.addAll(processors);
+
 
         //创建其他普通Bean
         List<BeanDefinition> defs = this.beans.values().stream()
@@ -242,6 +256,13 @@ public class AnnotationConfigApplicationContext implements Closeable {
                         String.format("Cannot specify @Autowired when create @Configuration bean '%s': %s.", def.getName(), def.getBeanClass().getName()));
             }
 
+            // BeanPostProcessor不能依赖其他Bean，不允许使用@Autowired创建:
+            final boolean isBeanPostProcessor = isBeanPostProcessorDefinition(def);
+            if (isBeanPostProcessor && autowired != null) {
+                throw new BeanCreationException(
+                        String.format("Cannot specify @Autowired when create BeanPostProcessor '%s': %s.", def.getName(), def.getBeanClass().getName()));
+            }
+
             // 参数需要@Value或@Autowired两者之一:要不属于静态资源，要不属于其它Bean
             if (value != null && autowired != null) {
                 throw new BeanCreationException(
@@ -315,6 +336,24 @@ public class AnnotationConfigApplicationContext implements Closeable {
         }
         //设置Bean实例
         def.setInstance(instance);
+
+        //调用BeanPostProcessor处理Bean
+        //每个Bean在创建的时候要执行所有的BeanPostProcessor方法
+        for (BeanPostProcessor beanPostProcessor : beanPostProcessors) {
+            //BeanPostProcessor的before方法
+            //增强Bean或者AOP
+            Object processed = beanPostProcessor.postProcessBeforeInitialization(def.getInstance(), def.getName());
+            if (processed == null) {
+                throw new BeanCreationException(String.format("PostBeanProcessor returns null when process bean '%s' by %s", def.getName(), beanPostProcessor));
+            }
+            //如果BeanPostProcessor替换了原始Bean，需要更换Bean的引用。
+            //ProxyObj在这里发生了
+            if (def.getInstance() != processed) {
+                log.debug("Bean '{}' was replaced by post processor {}.", def.getName(), beanPostProcessors.getClass().getName());
+                def.setInstance(processed);
+            }
+        }
+
         return def.getInstance();
     }
 
@@ -325,10 +364,32 @@ public class AnnotationConfigApplicationContext implements Closeable {
      */
     private void injectBean(BeanDefinition def) {
         try {
-            injectProperties(def, def.getBeanClass(), def.getInstance());
+            //获取Bean实例或者被代理的原始对象，注入属性
+            Object proxiedInstance = getProxiedInstance(def);
+            injectProperties(def, def.getBeanClass(), proxiedInstance);
         } catch (ReflectiveOperationException e) {
             throw new BeanCreationException(e);
         }
+    }
+
+    /**
+     * 获取原始Bean
+     *
+     * @param def
+     * @return
+     */
+    private Object getProxiedInstance(BeanDefinition def) {
+        Object beanInstance = def.getInstance();
+        // 如果Proxy改变了原始Bean，又希望注入到原始Bean，则由BeanPostProcessor指定原始Bean:
+        List<BeanPostProcessor> reversedBeanPostProcessors = new ArrayList<>(this.beanPostProcessors);
+        Collections.reverse(reversedBeanPostProcessors);
+        for (BeanPostProcessor beanPostProcessor : reversedBeanPostProcessors) {
+            Object restoredInstance = beanPostProcessor.postProcessOnSetProperty(beanInstance, def.getName());
+            if (restoredInstance != beanInstance) {
+                beanInstance = restoredInstance;
+            }
+        }
+        return beanInstance;
     }
 
     /**
@@ -355,8 +416,8 @@ public class AnnotationConfigApplicationContext implements Closeable {
      * 调用init/destroy方法
      *
      * @param beanInstance
-     * @param method 方法，直接根据方法进行反射
-     * @param namedMethod 方法名，直接根据方法名进行反射
+     * @param method       方法，直接根据方法进行反射
+     * @param namedMethod  方法名，直接根据方法名进行反射
      */
     private void callMethod(Object beanInstance, Method method, String namedMethod) {
         if (method != null) {
@@ -545,9 +606,6 @@ public class AnnotationConfigApplicationContext implements Closeable {
     }
 
 
-
-
-
     /**
      * Get order by:
      *
@@ -724,6 +782,9 @@ public class AnnotationConfigApplicationContext implements Closeable {
         }
     }
 
+    boolean isBeanPostProcessorDefinition(BeanDefinition def) {
+        return BeanPostProcessor.class.isAssignableFrom(def.getBeanClass());
+    }
 
     /**
      * 通过Name查找Bean，不存在时抛出NoSuchBeanDefinitionException
