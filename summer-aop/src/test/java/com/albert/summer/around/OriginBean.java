@@ -15,6 +15,10 @@ public class OriginBean {
     @Value("${customer.name}")
     public String name;
 
+    /**
+     * 代理@Polite对应的方法
+     * @return
+     */
     @Polite
     public String hello() {
         return "Hello, " + name + ".";

@@ -13,7 +13,8 @@ import net.bytebuddy.implementation.InvocationHandlerAdapter;
 import net.bytebuddy.matcher.ElementMatchers;
 
 /**
- * Create proxy by subclassing and override methods with interceptor.
+ * 真正实现动态代理的地方
+ * 使用ByteBuddy进行字节码增强，将增强后的子类即代理类返回
  */
 @Slf4j
 public class ProxyResolver {
@@ -45,6 +46,7 @@ public class ProxyResolver {
     public <T> T createProxy(T bean, InvocationHandler handler) {
         Class<?> targetClass = bean.getClass();
         log.debug("create proxy for bean {} @{}", targetClass.getName(), Integer.toHexString(bean.hashCode()));
+        //使用ByteBuddy进行字节码增强，调用代理细节
         Class<?> proxyClass = this.byteBuddy
                 // 默认采用无参构造
                 .subclass(targetClass, ConstructorStrategy.Default.DEFAULT_CONSTRUCTOR)

@@ -46,6 +46,8 @@ public class AnnotationConfigApplicationContext implements ConfigurableApplicati
     private List<BeanPostProcessor> beanPostProcessors = new ArrayList<>();
 
     public AnnotationConfigApplicationContext(Class<?> configClass, PropertyResolver propertyResolver) {
+        ApplicationContextUtils.setApplicationContext(this);
+
         this.propertyResolver = propertyResolver;
 
         // 1.扫描获取所有Bean的Class类型:
@@ -893,6 +895,7 @@ public class AnnotationConfigApplicationContext implements ConfigurableApplicati
         }
         this.beans.clear();
         this.createingBeanNames.clear();
+        ApplicationContextUtils.setApplicationContext(null);
     }
 
 

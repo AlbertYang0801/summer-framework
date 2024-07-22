@@ -14,6 +14,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ * 基于注解自动实现AOP
+ * 使用BeanPostProcessor实现拦截加了指定注解的Bean
+ * 拦截到Bean之后，调用Proxy方式生产Proxy类后，放到Bean容器
  * AOP拦截实现
  *
  * @author yangjunwei
@@ -67,7 +70,7 @@ public abstract class AnnotationProxyBeanPostProcessor<A extends Annotation> imp
      * 对原始Bean执行代理逻辑
      *
      * @param bean
-     * @param handlerName
+     * @param handlerName Spring管理的InvocationHandler
      * @return
      */
     Object createProxy(Object bean, String handlerName) {
