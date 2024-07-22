@@ -9,6 +9,9 @@ import java.lang.annotation.Target;
 
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
+/**
+ * Inherited标注该注解会被子类继承
+ */
 @Inherited
 @Documented
 public @interface Around {
@@ -17,5 +20,6 @@ public @interface Around {
      * Invocation handler bean name.
      */
     String value();
+
 
 }
