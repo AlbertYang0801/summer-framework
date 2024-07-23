@@ -1,8 +1,12 @@
 package com.albert.summer.jdbc;
 
+import com.albert.summer.annotation.Autowired;
 import com.albert.summer.annotation.Bean;
 import com.albert.summer.annotation.Configuration;
 import com.albert.summer.annotation.Value;
+import com.albert.summer.tx.DataSourceTransactionManager;
+import com.albert.summer.tx.PlatformTransactionManager;
+import com.albert.summer.tx.TransactionalBeanPostProcessor;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -37,7 +41,7 @@ public class JdbcConfiguration {
                           @Value("${summer.datasource.maximum-pool-size:20}") int maximumPoolSize,
                           @Value("${summer.datasource.minimum-pool-size:1}") int minimumPoolSize,
                           @Value("${summer.datasource.connection-timeout:30000}") int connTimeout) {
-        var config = new HikariConfig();
+        HikariConfig config = new HikariConfig();
         config.setAutoCommit(false);
         config.setJdbcUrl(url);
         config.setUsername(username);
@@ -50,6 +54,22 @@ public class JdbcConfiguration {
         config.setConnectionTimeout(connTimeout);
         return new HikariDataSource(config);
     }
+
+    @Bean
+    JdbcTemplate jdbcTemplate(@Autowired DataSource dataSource){
+        return new JdbcTemplate(dataSource);
+    }
+
+    @Bean
+    TransactionalBeanPostProcessor transactionalBeanPostProcessor(){
+        return new TransactionalBeanPostProcessor();
+    }
+
+    @Bean
+    PlatformTransactionManager platformTransactionManager(@Autowired DataSource dataSource){
+        return new DataSourceTransactionManager(dataSource);
+    }
+
 
 
 }

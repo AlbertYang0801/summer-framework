@@ -13,6 +13,10 @@ import java.lang.annotation.*;
 @Inherited
 public @interface Transactional {
 
+    /**
+     * 默认的invocationHandler
+     * @return
+     */
     String value() default "platformTransactionManager";
 
     /**

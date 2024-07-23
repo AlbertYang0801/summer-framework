@@ -1,6 +1,7 @@
 package com.albert.summer.jdbc;
 
 import com.albert.summer.exception.DataAccessException;
+import com.albert.summer.tx.TransactionalUtils;
 import jakarta.annotation.Nullable;
 
 import javax.sql.DataSource;
@@ -29,6 +30,19 @@ public class JdbcTemplate {
      * @return
      */
     public <T> T execute(ConnectionCallback<T> action) {
+
+        //获取当前事务
+        Connection currentConnection = TransactionalUtils.getCurrentConnection();
+        if (currentConnection != null) {
+            try {
+                //存在事务，加入当前事务
+                return action.doInConnection(currentConnection);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        //无事务，则从DataSource获取新连接
         try (Connection connection = dataSource.getConnection()) {
             //提供Connection，供上层代码使用
             T t = action.doInConnection(connection);
@@ -62,7 +76,7 @@ public class JdbcTemplate {
         return execute(
                 (Connection con) -> {
                     //主键返回
-                    var ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+                    PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
                     bindArgs(ps, params);
                     return ps;
                 },
@@ -188,7 +202,7 @@ public class JdbcTemplate {
     private PreparedStatementCreator preparedStatementCreator(String sql, Object... args) {
         return (Connection con) -> {
             //预编译SQL
-            var ps = con.prepareStatement(sql);
+            PreparedStatement ps = con.prepareStatement(sql);
             //绑定参数
             bindArgs(ps, args);
             return ps;
