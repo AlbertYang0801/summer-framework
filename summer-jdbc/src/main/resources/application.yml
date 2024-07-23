@@ -1,0 +1,6 @@
+summer:
+  datasource:
+    url: jdbc:mysql://10.10.102.82:3306/test
+    driver-class-name: com.mysql.jdbc.Driver
+    username: buynow
+    password: buynow

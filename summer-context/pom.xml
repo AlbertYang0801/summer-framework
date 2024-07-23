@@ -8,7 +8,6 @@
         <groupId>com.albert.summer</groupId>
         <artifactId>summer-parent</artifactId>
         <version>1.0</version>
-        <relativePath>../summer-parent/pom.xml</relativePath>
     </parent>
 
     <artifactId>summer-context</artifactId>
