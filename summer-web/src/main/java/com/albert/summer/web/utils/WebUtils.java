@@ -22,6 +22,9 @@ import jakarta.servlet.ServletContext;
 
 public class WebUtils {
 
+    public static final String DEFAULT_PARAM_VALUE = "\0\t\0\t\0";
+
+
     static final Logger logger = LoggerFactory.getLogger(WebUtils.class);
 
     static final String CONFIG_APP_YAML = "/application.yml";

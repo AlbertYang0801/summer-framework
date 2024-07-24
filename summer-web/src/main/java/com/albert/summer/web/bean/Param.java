@@ -24,13 +24,13 @@ import java.util.List;
  */
 public class Param {
 
-    String name;
+    public String name;
 
-    ParamType paramType;
+    public ParamType paramType;
 
-    Class<?> classType;
+    public Class<?> classType;
 
-    String defaultValue;
+    public String defaultValue;
 
     private static List<Class<?>> SERVICE_VARIABLE_CLASSES = new ArrayList<>();
 
