@@ -1,6 +1,7 @@
 package com.albert.summer.web;
 
 import com.albert.summer.context.ApplicationContext;
+import com.albert.summer.property.PropertyResolver;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,6 +28,11 @@ public class DispatcherServlet extends HttpServlet {
 
     public DispatcherServlet(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
+    }
+
+    public DispatcherServlet(ApplicationContext requiredApplicationContext, PropertyResolver properyResolver) {
+        this.applicationContext = requiredApplicationContext;
+        //TODO
     }
 
     @Override
