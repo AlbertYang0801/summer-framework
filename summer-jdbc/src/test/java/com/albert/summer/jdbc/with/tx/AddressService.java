@@ -22,6 +22,7 @@ public class AddressService {
     public void addAddress(Address... addresses) {
         for (Address address : addresses) {
             // check if userId is exist:
+            //为空会抛出DataAccessException
             User user = userService.getUser(address.userId);
             //if (user != null) {
             //    throw new RuntimeException("user already exists");

@@ -9,4 +9,7 @@ import com.albert.summer.aop.AnnotationProxyBeanPostProcessor;
  * @date 2024/7/23 21:09
  */
 public class TransactionalBeanPostProcessor extends AnnotationProxyBeanPostProcessor<Transactional> {
+
+
+
 }

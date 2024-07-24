@@ -7,10 +7,16 @@ import com.albert.summer.jdbc.JdbcTemplate;
 import com.albert.summer.jdbc.JdbcTestBase;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 无事务操作JDBC
+ *
  * @author yjw
  * @date 2024/7/23 21:23
  */
@@ -48,20 +54,40 @@ public class JdbcWithOutTxTest extends JdbcTestBase {
             int id1 = jdbcTemplate.update(UPDATE_USER, "yyy", "300", "1");
             assertEquals(id1, 1);
             int id2 = jdbcTemplate.update(DELETE_USER, "2");
-            assertEquals(id2, 2);
+            assertEquals(id2, 1);
         }
 
         //reopen query id=2
         try (ConfigurableApplicationContext ctx = new AnnotationConfigApplicationContext(JdbcWithoutTxApplication.class, createPropertyResolver())) {
             JdbcTemplate jdbcTemplate = ctx.getBean(JdbcTemplate.class);
             User bob = jdbcTemplate.queryForObject(SELECT_USER, User.class, 1);
-            assertEquals("Bob Jones", bob.name);
-            assertEquals(18, bob.theAge);
+            assertEquals("yyy", bob.name);
+            assertEquals(300, bob.theAge);
             //拦截DataAccessException异常
             assertThrows(DataAccessException.class, () -> {
                 // 查询不到已经删除的结果，抛出DataAccessException
                 jdbcTemplate.queryForObject(SELECT_USER, User.class, 2);
             });
+        }
+
+    }
+
+    @Test
+    public void test() {
+        try (Connection conn = DriverManager.getConnection("jdbc:mysql://10.10.102.83:3306/test", "buynow", "buynow");
+                PreparedStatement pstmt = conn.prepareStatement(INSERT_USER)) {
+
+            pstmt.setObject(1, "John Doe");
+            pstmt.setObject(2, 30);
+            int affectedRows = pstmt.executeUpdate();
+
+            if (affectedRows == 0) {
+                System.out.println("No rows affected by the insert statement.");
+            }
+
+        } catch (
+                SQLException ex) {
+            ex.printStackTrace();
         }
     }
 

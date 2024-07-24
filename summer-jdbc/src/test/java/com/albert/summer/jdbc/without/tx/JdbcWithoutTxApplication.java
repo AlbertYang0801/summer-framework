@@ -24,7 +24,8 @@ public class JdbcWithoutTxApplication {
             @Value("${summer.datasource.connection-timeout:30000}") int connTimeout //
     ) {
         HikariConfig config = new HikariConfig();
-        config.setAutoCommit(false);
+        //自动提交默认为true，如果为false，需要手动提交
+        config.setAutoCommit(true);
         config.setJdbcUrl(url);
         config.setUsername(username);
         config.setPassword(password);

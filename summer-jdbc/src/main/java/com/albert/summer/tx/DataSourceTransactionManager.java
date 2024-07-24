@@ -1,6 +1,7 @@
 package com.albert.summer.tx;
 
 import com.albert.summer.exception.TransactionException;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
 import java.lang.reflect.InvocationHandler;
@@ -15,6 +16,7 @@ import java.sql.SQLException;
  * @author yangjunwei
  * @date 2024/7/23
  */
+@Slf4j
 public class DataSourceTransactionManager implements PlatformTransactionManager, InvocationHandler {
 
     /**
@@ -59,6 +61,7 @@ public class DataSourceTransactionManager implements PlatformTransactionManager,
                     //方法返回
                     return invoke;
                 } catch (Exception e) {
+                    e.printStackTrace();
                     //TODO 集合事务注解的rollBack
                     //回滚事务
                     TransactionException transactionException = new TransactionException(e);
@@ -72,12 +75,12 @@ public class DataSourceTransactionManager implements PlatformTransactionManager,
 
                 } finally {
                     TRANSACTION_STATUS.remove();
-                    if(autoCommit){
+                    if (autoCommit) {
                         connection.setAutoCommit(true);
                     }
                 }
             }
-        }else{
+        } else {
             //TODO 默认事务传播行为 REQUIRED
             //当前已有事务，加入当前事务执行
             return method.invoke(proxy, args);

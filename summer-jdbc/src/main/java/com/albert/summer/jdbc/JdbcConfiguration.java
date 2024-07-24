@@ -42,7 +42,8 @@ public class JdbcConfiguration {
                           @Value("${summer.datasource.minimum-pool-size:1}") int minimumPoolSize,
                           @Value("${summer.datasource.connection-timeout:30000}") int connTimeout) {
         HikariConfig config = new HikariConfig();
-        config.setAutoCommit(false);
+        //自动提交，设置为false，需要手动提交
+        config.setAutoCommit(true);
         config.setJdbcUrl(url);
         config.setUsername(username);
         config.setPassword(password);

@@ -1,14 +1,6 @@
-#summer:
-#  datasource:
-#    url: jdbc:mysql://10.10.102.82:3306/test
-#    driver-class-name: com.mysql.jdbc.Driver
-#    username: buynow
-#    password: buynow
-
-
 summer:
   datasource:
-    url: jdbc:mysql://localhost:3306/test
-    driver-class-name: com.mysql.jdbc.Driver
-    username: root
-    password: 123456
+    url: jdbc:mysql://10.10.102.83:3306/test
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: buynow
+    password: buynow

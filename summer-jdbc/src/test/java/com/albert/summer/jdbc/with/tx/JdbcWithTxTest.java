@@ -13,11 +13,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 有事务操作JDBC
+ *
  * @author yjw
  * @date 2024/7/23 21:37
  */
 public class JdbcWithTxTest extends JdbcTestBase {
-
 
     @Test
     public void testJdbcWithTx() throws Exception {
@@ -48,6 +48,7 @@ public class JdbcWithTxTest extends JdbcTestBase {
 
             //add3没有对应的userId，所以会触发DataAccessException异常，然后触发回滚
             assertThrows(TransactionException.class, () -> {
+                //新的一个事务，被回滚
                 addressService.addAddress(addr1, addr2, addr3);
             });
 
@@ -76,6 +77,7 @@ public class JdbcWithTxTest extends JdbcTestBase {
             assertEquals(2, addressesOfBob.size());
         }
     }
-}
+
 
 }
+
