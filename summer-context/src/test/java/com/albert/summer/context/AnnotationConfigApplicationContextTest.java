@@ -123,11 +123,7 @@ class AnnotationConfigApplicationContextTest {
         //测试字段属性注入
         AnnotationInitBean bean1 = applicationContent.getBean(AnnotationInitBean.class);
         assertEquals("Scan App / v1.0", bean1.appName);
-        try {
-            applicationContent.close();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        applicationContent.close();
     }
 
     /**
@@ -140,8 +136,8 @@ class AnnotationConfigApplicationContextTest {
         //相同proxy代理逻辑，order越大优先级越高。
         //所以最终生效的是SecondProxyBeanPostProcessor
         assertSame(SecondProxyBean.class, proxy.getClass());
-        assertEquals("Scan App",proxy.getName());
-        assertEquals("v1.0",proxy.getVersion());
+        assertEquals("Scan App", proxy.getName());
+        assertEquals("v1.0", proxy.getVersion());
 
         // make sure proxy.field is not injected:
         //直接调用代理类的字段是null，因为属性注入到了原始对象中，可以使用方法获取字段属性

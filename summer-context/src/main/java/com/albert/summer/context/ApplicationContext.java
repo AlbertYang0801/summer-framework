@@ -54,7 +54,7 @@ public interface ApplicationContext extends AutoCloseable{
      * @throws Exception
      */
     @Override
-    void close() throws Exception;
+    void close();
 
 
 }

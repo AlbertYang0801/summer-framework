@@ -13,6 +13,7 @@
         <module>summer-context</module>
         <module>summer-aop</module>
         <module>summer-jdbc</module>
+        <module>summer-web</module>
     </modules>
 
     <properties>

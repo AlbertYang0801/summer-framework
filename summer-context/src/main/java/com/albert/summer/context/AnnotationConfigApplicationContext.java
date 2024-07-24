@@ -888,7 +888,7 @@ public class AnnotationConfigApplicationContext implements ConfigurableApplicati
     }
 
     @Override
-    public void close() throws IOException {
+    public void close(){
         //在关闭时，调用PreDestroy标注的方法
         for (BeanDefinition value : this.beans.values()) {
             destroyBean(value);
