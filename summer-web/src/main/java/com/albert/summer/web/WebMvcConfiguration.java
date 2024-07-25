@@ -19,12 +19,13 @@ public class WebMvcConfiguration {
 
     private static ServletContext servletContext = null;
 
-    static void setServletContext(ServletContext servletContext) {
-        servletContext = servletContext;
+    static void setServletContext(ServletContext ctx) {
+        servletContext = ctx;
     }
 
     /**
      * ServletContext本身是Servlet容器提供的，注入到IOC容器中
+     *
      * @return
      */
     @Bean
@@ -36,8 +37,9 @@ public class WebMvcConfiguration {
     ViewResolver viewResolver(@Autowired ServletContext servletContext,
                               @Value("${summer.web.freemarker.template-path:/WEB-INF/templates}") String templatePath,
                               @Value("${summer.web.freemarker.template-encoding:UTF-8}") String templateEncoding) {
-        return new FreeMarkerViewResolver(templatePath, templateEncoding, servletContext);
+        return new FreeMarkerViewResolver(servletContext, templatePath, templateEncoding);
     }
+
 
 
 }

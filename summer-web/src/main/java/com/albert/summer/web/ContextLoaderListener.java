@@ -33,21 +33,21 @@ public class ContextLoaderListener implements ServletContextListener {
 
         //Servlet容器
         ServletContext servletContext = sce.getServletContext();
+        WebMvcConfiguration.setServletContext(servletContext);
 
         //application.yml中的配置内容
         //配置解析器
         PropertyResolver propertyResolver = WebUtils.createPropertyResolver();
+        String encoding = propertyResolver.getProperty("${summer.web.character-encoding:UTF-8}");
+
+        servletContext.setRequestCharacterEncoding(encoding);
+        servletContext.setRequestCharacterEncoding(encoding);
 
         //servlet的配置，web.xml中配置
         ApplicationContext applicationContext = createApplicationContext(servletContext.getInitParameter("configuration"), propertyResolver);
 
-        DispatcherServlet dispatcherServlet = new DispatcherServlet(applicationContext);
-
-        //将DisPatcherServlet加入到Servlet容器中
-        ServletRegistration.Dynamic dynamic = servletContext.addServlet("dispatcherServlet", dispatcherServlet);
-        dynamic.addMapping("/");
-        //启动时候加载
-        dynamic.setLoadOnStartup(1);
+        WebUtils.registerFilters(servletContext);
+        WebUtils.registerDispatcherServlet(servletContext,propertyResolver);
     }
 
     /**

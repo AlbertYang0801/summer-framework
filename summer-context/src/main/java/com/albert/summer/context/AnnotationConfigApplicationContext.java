@@ -119,6 +119,7 @@ public class AnnotationConfigApplicationContext implements ConfigurableApplicati
         //扫描ComponentScan注解
         ComponentScan componentScan = ClassUtils.findAnnotation(configClass, ComponentScan.class);
         //获取注解指定
+        //如果不指定componentScan，则扫描@Configuration类所在包
         String[] scanPackages = componentScan == null || componentScan.value().length == 0 ?
                 new String[]{configClass.getPackage().getName()} : componentScan.value();
         log.info("component scan in pkg : " + Arrays.toString(scanPackages));

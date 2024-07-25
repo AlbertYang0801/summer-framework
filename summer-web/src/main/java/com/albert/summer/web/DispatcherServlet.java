@@ -1,6 +1,5 @@
 package com.albert.summer.web;
 
-import cn.hutool.json.JSONUtil;
 import com.albert.summer.annotation.Controller;
 import com.albert.summer.annotation.GetMapping;
 import com.albert.summer.annotation.PostMapping;
@@ -62,7 +61,6 @@ public class DispatcherServlet extends HttpServlet {
 
     public DispatcherServlet(ApplicationContext requiredApplicationContext, PropertyResolver properyResolver) {
         this.applicationContext = requiredApplicationContext;
-        //TODO
         this.viewResolver = applicationContext.getBean(ViewResolver.class);
         this.resourcePath = properyResolver.getProperty("${summer.web.static-path:/static/}");
         this.faviconPath = properyResolver.getProperty("${summer.web.favicon-path:/favicon.ico}");
@@ -72,7 +70,7 @@ public class DispatcherServlet extends HttpServlet {
     }
 
     @Override
-    public void init(ServletConfig config) throws ServletException {
+    public void init() throws ServletException {
         log.info("init {}", getClass().getName());
         //scan @Controller 和 @RestController，注册方法（每个方法对应一个url）
         //查询所有Bean
@@ -284,9 +282,8 @@ public class DispatcherServlet extends HttpServlet {
                         throw new ServletException("Unable to process " + processResult.getClass().getName() + " result when handle url: " + url);
                     }
                 }
-
+                return;
             }
-            return;
         }
         resp.sendError(404, "NOT FOUND");
     }
