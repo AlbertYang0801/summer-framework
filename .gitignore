@@ -25,3 +25,4 @@ hs_err_pid*
 /summer-aop/target/
 /summer-jdbc/target/
 /summer-web/target/
+/summer-boot/target/classes/application.yml

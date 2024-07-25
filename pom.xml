@@ -14,6 +14,7 @@
         <module>summer-aop</module>
         <module>summer-jdbc</module>
         <module>summer-web</module>
+        <module>summer-boot</module>
     </modules>
 
     <properties>
