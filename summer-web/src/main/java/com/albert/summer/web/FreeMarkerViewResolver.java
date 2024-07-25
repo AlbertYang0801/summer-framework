@@ -1,13 +1,15 @@
 package com.albert.summer.web;
 
+import com.albert.summer.exception.ServerErrorException;
 import freemarker.core.HTMLOutputFormat;
-import freemarker.template.Configuration;
-import freemarker.template.DefaultObjectWrapper;
-import freemarker.template.TemplateExceptionHandler;
+import freemarker.template.*;
 import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Map;
 
 /**
@@ -44,7 +46,21 @@ public class FreeMarkerViewResolver implements ViewResolver {
     }
 
     @Override
-    public void render(String viewName, Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) {
-
+    public void render(String viewName, Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        Template templ = null;
+        try {
+            templ = this.config.getTemplate(viewName);
+        } catch (Exception e) {
+            throw new ServerErrorException("View not found: " + viewName);
+        }
+        PrintWriter pw = response.getWriter();
+        try {
+            templ.process(model, pw);
+        } catch (TemplateException e) {
+            throw new ServerErrorException(e);
+        }
+        pw.flush();
     }
+
+
 }

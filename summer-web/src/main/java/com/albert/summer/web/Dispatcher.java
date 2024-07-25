@@ -94,8 +94,10 @@ public class Dispatcher {
     }
 
     /**
-     * 调用方法
-     * 解析入参，反射执行方法
+     * 1.匹配url
+     * 2.调用方法
+     * 3.解析入参，反射执行方法
+     * 4.返回执行结果
      *
      * @param url
      * @param request
@@ -146,6 +148,7 @@ public class Dispatcher {
             Object result = null;
             //给某个类的某个方法，传入某些参数。反射执行方法
             try {
+                //执行方法
                 result = this.handlerMethod.invoke(this.controller, arguments);
             } catch (InvocationTargetException e) {
                 //Throwable t = e.getCause();
